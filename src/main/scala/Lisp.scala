@@ -3,10 +3,18 @@ import scala.util.parsing.combinator.JavaTokenParsers
 
 sealed trait Form
 class UnitForm extends Form
-case class CharForm(c: Char) extends Form
-case class RealForm(d: Double) extends Form
-case class SymbolForm(s: String) extends Form
-case class ListForm(l: List[Form]) extends Form
+case class CharForm(c: Char) extends Form {
+  override def toString = "'" + c.toString + "'"
+}
+case class RealForm(d: Double) extends Form {
+  override def toString = d.toString
+}
+case class SymbolForm(s: String) extends Form {
+  override def toString = s
+}
+case class ListForm(l: List[Form]) extends Form {
+  override def toString = l.mkString("[", " ", "]")
+}
 case class CallForm(l: List[Form]) extends Form
 
 case class Function(args: List[SymbolForm], body: CallForm)
@@ -83,16 +91,7 @@ object Evaluator {
       case SymbolForm("*") => mathOp(env, tail, _ * _)
       case SymbolForm("/") => mathOp(env, tail, _ / _)
       case SymbolForm("print") => {
-        val forms = tail.map {
-          eval(_, env)._1 match {
-            case SymbolForm(s) => s
-            case CharForm(c) => c.toString
-            case RealForm(n) => n.toString
-            case ListForm(l) => l.mkString("[", " ", "]")
-            case f: Form => f.toString
-          }
-        }.mkString(" ")
-        println(forms)
+        println(tail.map(eval(_, env)._1.toString).mkString(" "))
         (new UnitForm, env)
       }
       case SymbolForm("defn") => tail match {
