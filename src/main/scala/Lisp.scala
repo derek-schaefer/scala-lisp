@@ -3,6 +3,7 @@ import scala.util.parsing.combinator.JavaTokenParsers
 
 sealed trait Form
 class UnitForm extends Form
+case class CharForm(c: Char) extends Form
 case class RealForm(d: Double) extends Form
 case class SymbolForm(s: String) extends Form
 case class ListForm(l: List[Form]) extends Form
@@ -18,9 +19,14 @@ case class ArityError(msg: String) extends RuntimeException(msg)
 object Parser extends JavaTokenParsers {
 
   lazy val program: Parser[List[Form]] = rep(form)
-  lazy val form: Parser[Form] = real | symbol | list | call
+  lazy val form: Parser[Form] = char | real | symbol | string | list | call
+  lazy val char: Parser[CharForm] = "'" ~> ".".r <~ "'" ^^ { s => CharForm(s.head) }
   lazy val real: Parser[RealForm] = floatingPointNumber ^^ { s => RealForm(s.toDouble) }
   lazy val symbol: Parser[SymbolForm] = """[a-zA-Z_@~%!=#<>\-\+\*\?\^\&\/]+""".r ^^ { s => SymbolForm(s.toString) }
+  lazy val string: Parser[ListForm] = stringLiteral ^^ { s =>
+    val chars = s.substring(1, s.size - 1).toList.map("'" + _ + "'")
+    parse(list, "[" + chars.mkString(" ") + "]").get
+  }
   lazy val list: Parser[ListForm] = "[" ~> rep(form) <~ "]" ^^ { ListForm(_) }
   lazy val call: Parser[CallForm] = "(" ~> rep(form) <~ ")" ^^ { CallForm(_) }
 
@@ -60,13 +66,13 @@ object Evaluator {
   private def mathOp(env: Env, l: List[Form], f: (RealForm, RealForm) => RealForm): (Form, Env) = {
     (l.map(eval(_, env)._1)) match {
       case l: List[Form] => {
-        val r = l.tail.foldLeft(l.headOption.getOrElse(RealForm(0))) {
+        val r = l.tail.foldLeft(l.headOption.getOrElse(RealForm(0L))) {
           case (RealForm(a), RealForm(b)) => f(a, b)
-          case _ => throw TypeError("NO")
+          case _ => throw TypeError("Cannot perform math operation on non-numerical type.")
         }
         (r, env)
       }
-      case _ => throw TypeError("NO")
+      case _ => throw TypeError("Incorrect arguments.")
     }
   }
 
@@ -76,6 +82,19 @@ object Evaluator {
       case SymbolForm("-") => mathOp(env, tail, _ - _)
       case SymbolForm("*") => mathOp(env, tail, _ * _)
       case SymbolForm("/") => mathOp(env, tail, _ / _)
+      case SymbolForm("print") => {
+        val forms = tail.map {
+          eval(_, env)._1 match {
+            case SymbolForm(s) => s
+            case CharForm(c) => c.toString
+            case RealForm(n) => n.toString
+            case ListForm(l) => l.mkString("[", " ", "]")
+            case f: Form => f.toString
+          }
+        }.mkString(" ")
+        println(forms)
+        (new UnitForm, env)
+      }
       case SymbolForm("defn") => tail match {
         case List(f: SymbolForm, ListForm(args), body: CallForm) => (new UnitForm, env + ((f, Function(args, body))))
         case _ => throw TypeError("Incorrect arguments.")
@@ -83,7 +102,11 @@ object Evaluator {
       case s: SymbolForm => env.get(s) match {
         case Some(Function(args, body)) => {
           if (tail.size == args.size) {
-            eval(body, env ++ args.zip(tail).toMap) // TODO: eval symbols
+            val vars = tail.map {
+              case s: SymbolForm => env(s)
+              case f: Form => f
+            }
+            eval(body, env ++ args.zip(vars).toMap)
           } else {
             throw ArityError("Function \"" + s + "\" takes exactly " + args.size + " arguments (" + tail.size + " given)")
           }
@@ -103,7 +126,6 @@ object Evaluator {
         res = r
         env = e
       }
-      println(res)
     }
   }
 
