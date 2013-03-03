@@ -176,7 +176,11 @@ object Main {
       case f :: Nil => Evaluator.eval(f, env)
       case f :: fs => loop(fs, Evaluator.eval(f, env))
     }
-    loop(Parser.parse(line), (new UnitForm, env))
+    val res = (new UnitForm, env)
+    Parser.parse(line) match {
+      case Nil => res
+      case l: List[Form] => loop(l, res)
+    }
   }
 
   def main(args: Array[String]) { repl() }
