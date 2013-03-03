@@ -5,32 +5,44 @@ import scala.tools.jline.console.ConsoleReader
 import scala.tools.jline.console.history.FileHistory
 
 sealed trait Form
+
 class UnitForm extends Form
+
+case class BooleanForm(b: Boolean) extends Form {
+  override def toString = b.toString
+}
+
 case class CharForm(c: Char) extends Form {
   override def toString = "'" + c.toString + "'"
 }
+
 case class RealForm(d: Double) extends Form {
   override def toString = d.toString
 }
+
 case class SymbolForm(s: String) extends Form {
   override def toString = s
 }
+
 case class ListForm(l: List[Form]) extends Form {
   override def toString = l.mkString("[", " ", "]")
 }
+
 case class CallForm(l: List[Form]) extends Form
 
 case class Function(args: List[SymbolForm], body: CallForm)
 
-case class SyntaxError(msg: String) extends Exception(msg)
-case class TypeError(msg: String) extends RuntimeException(msg)
-case class NameError(msg: String) extends RuntimeException(msg)
-case class ArityError(msg: String) extends RuntimeException(msg)
+class Error(msg: String) extends Exception(msg)
+case class SyntaxError(msg: String) extends Error(msg)
+case class TypeError(msg: String) extends Error(msg)
+case class NameError(msg: String) extends Error(msg)
+case class ArityError(msg: String) extends Error(msg)
 
 object Parser extends JavaTokenParsers {
 
   lazy val program: Parser[List[Form]] = rep(form)
-  lazy val form: Parser[Form] = char | real | symbol | string | list | call
+  lazy val form: Parser[Form] = bool | char | real | symbol | string | list | call
+  lazy val bool: Parser[BooleanForm] = """true|false""".r ^^ { s => BooleanForm(s == "true") }
   lazy val char: Parser[CharForm] = "'" ~> ".".r <~ "'" ^^ { s => CharForm(s.head) }
   lazy val real: Parser[RealForm] = floatingPointNumber ^^ { s => RealForm(s.toDouble) }
   lazy val symbol: Parser[SymbolForm] = """[a-zA-Z_@~%!=#<>\-\+\*\?\^\&\/]+""".r ^^ { s => SymbolForm(s.toString) }
@@ -93,13 +105,13 @@ object Evaluator {
       case SymbolForm("-") => mathOp(env, tail, _ - _)
       case SymbolForm("*") => mathOp(env, tail, _ * _)
       case SymbolForm("/") => mathOp(env, tail, _ / _)
-      case SymbolForm("print") => {
-        println(tail.map(eval(_, env)._1.toString).mkString(" "))
-        (new UnitForm, env)
-      }
       case SymbolForm("defn") => tail match {
         case List(f: SymbolForm, ListForm(args), body: CallForm) => (new UnitForm, env + ((f, Function(args, body))))
         case _ => throw TypeError("Incorrect arguments.")
+      }
+      case SymbolForm("print") => {
+        println(tail.map(eval(_, env)._1.toString).mkString(" "))
+        (new UnitForm, env)
       }
       case s: SymbolForm => env.get(s) match {
         case Some(Function(args, body)) => {
