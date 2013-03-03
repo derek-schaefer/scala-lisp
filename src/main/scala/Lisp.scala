@@ -1,5 +1,8 @@
+import java.io.{File, OutputStreamWriter}
 import scala.language.implicitConversions
 import scala.util.parsing.combinator.JavaTokenParsers
+import scala.tools.jline.console.ConsoleReader
+import scala.tools.jline.console.history.FileHistory
 
 sealed trait Form
 class UnitForm extends Form
@@ -116,16 +119,51 @@ object Evaluator {
     }
   }
 
-  def main(args: Array[String]) {
-    for (s <- args) {
-      var res: Form = Evaluator.EmptyResult
-      var env = Evaluator.EmptyEnv
-      for (form <- Parser.parse(s)) {
-        val (r, e) = eval(form, env)
-        res = r
-        env = e
+}
+
+object Main {
+
+  val in = {
+    val reader = new ConsoleReader(System.in, new OutputStreamWriter(System.out))
+    reader.setPrompt(">> ")
+    reader.setHistory(new FileHistory(new File("~/.scala-lisp")))
+    reader.setHistoryEnabled(true)
+    reader
+  }
+
+  def repl {
+    var env = Evaluator.EmptyEnv
+    while (true) {
+      in.readLine match {
+        case line: String =>
+          try {
+            val (r, e) = interpret(line, env)
+            env = e
+            r match {
+              case f: UnitForm =>
+              case _ => println(r)
+            }
+          } catch {
+            case e: Throwable => println(e.getClass.getSimpleName + ": " + e.getMessage)
+          }
+        case _ => return
       }
     }
+  }
+
+  def interpret(line: String, initialEnv: Evaluator.Env): (Form, Evaluator.Env) = {
+    var res: Form = Evaluator.EmptyResult
+    var env = initialEnv
+    for (form <- Parser.parse(line)) {
+      val (r, e) = Evaluator.eval(form, env)
+      res = r
+      env = e
+    }
+    (res, env)
+  }
+
+  def main(args: Array[String]) {
+    repl
   }
 
 }
