@@ -1,8 +1,9 @@
-import java.io.{File, OutputStreamWriter}
 import scala.language.implicitConversions
-import scala.util.parsing.combinator.JavaTokenParsers
 import scala.tools.jline.console.ConsoleReader
 import scala.tools.jline.console.history.FileHistory
+import scala.util.parsing.combinator.JavaTokenParsers
+
+import java.io.File
 
 sealed trait Form
 
@@ -64,6 +65,7 @@ object Parser extends JavaTokenParsers {
 object Evaluator {
 
   type Env = Map[SymbolForm, Any]
+  type Result = (Form, Env)
 
   val EmptyEnv = Map.empty[SymbolForm, Any]
   val EmptyResult = ListForm(Nil)
@@ -73,10 +75,10 @@ object Evaluator {
 
   implicit def forms2Symbols(l: List[Form]): List[SymbolForm] = l.map {
     case s: SymbolForm => s
-    case _ => throw new RuntimeException("Not a symbol.")
+    case _ => throw TypeError("Not a symbol.")
   }
 
-  def eval(form: Form, env: Env = EmptyEnv): (Form, Env) = form match {
+  def eval(form: Form, env: Env = EmptyEnv): Result = form match {
     case s: SymbolForm => env(s) match {
       case f: Form => (f, env)
       case _ => throw NameError("Nope")
@@ -86,7 +88,7 @@ object Evaluator {
     case _ => (form, env)
   }
 
-  private def mathOp(env: Env, l: List[Form], f: (RealForm, RealForm) => RealForm): (Form, Env) = {
+  private def mathOp(env: Env, l: List[Form], f: (RealForm, RealForm) => RealForm): Result = {
     (l.map(eval(_, env)._1)) match {
       case l: List[Form] => {
         val r = l.tail.foldLeft(l.headOption.getOrElse(RealForm(0L))) {
@@ -99,7 +101,7 @@ object Evaluator {
     }
   }
 
-  def call(form: CallForm, env: Env): (Form, Env) = (form: @unchecked) match {
+  def call(form: CallForm, env: Env): Result = (form: @unchecked) match {
     case CallForm(head :: tail) => (head: @unchecked) match {
       case SymbolForm("+") => mathOp(env, tail, _ + _)
       case SymbolForm("-") => mathOp(env, tail, _ - _)
@@ -135,47 +137,48 @@ object Evaluator {
 
 object Main {
 
+  val history = {
+    val home = System.getProperty("user.home")
+    new FileHistory(new File(home + "/.scala-lisp"))
+  }
+
   val in = {
-    val reader = new ConsoleReader(System.in, new OutputStreamWriter(System.out))
+    val reader = new ConsoleReader(System.in, System.out, null, null)
     reader.setPrompt(">> ")
-    reader.setHistory(new FileHistory(new File("~/.scala-lisp")))
+    reader.setHistory(history)
     reader.setHistoryEnabled(true)
     reader
   }
 
-  def repl {
-    var env = Evaluator.EmptyEnv
-    while (true) {
-      in.readLine match {
-        case line: String =>
-          try {
-            val (r, e) = interpret(line, env)
-            env = e
-            r match {
-              case f: UnitForm =>
-              case _ => println(r)
+  def repl(env: Evaluator.Env = Evaluator.EmptyEnv) {
+    in.readLine match {
+      case line: String =>
+        try {
+          interpret(line, env) match {
+            case (f: UnitForm, e: Evaluator.Env) => repl(e)
+            case (f: Form, e: Evaluator.Env) => {
+              println(f)
+              repl(e)
             }
-          } catch {
-            case e: Throwable => println(e.getClass.getSimpleName + ": " + e.getMessage)
           }
-        case _ => return
-      }
+        } catch {
+          case e: Error => {
+            println("%s: %s".format(e.getClass.getSimpleName, e.getMessage))
+            repl(env)
+          }
+        }
+      case _ => return
     }
   }
 
-  def interpret(line: String, initialEnv: Evaluator.Env): (Form, Evaluator.Env) = {
-    var res: Form = Evaluator.EmptyResult
-    var env = initialEnv
-    for (form <- Parser.parse(line)) {
-      val (r, e) = Evaluator.eval(form, env)
-      res = r
-      env = e
+  def interpret(line: String, env: Evaluator.Env): Evaluator.Result = {
+    def loop(forms: List[Form], res: Evaluator.Result): Evaluator.Result = forms match {
+      case f :: Nil => Evaluator.eval(f, env)
+      case f :: fs => loop(fs, Evaluator.eval(f, env))
     }
-    (res, env)
+    loop(Parser.parse(line), (new UnitForm, env))
   }
 
-  def main(args: Array[String]) {
-    repl
-  }
+  def main(args: Array[String]) { repl() }
 
 }
